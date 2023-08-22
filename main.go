@@ -5,7 +5,6 @@ import (
 	"runtime"
 	"sync"
 	"time"
-
 )
 
 const (
@@ -14,16 +13,18 @@ const (
 )
 
 func main() {
+	t := time.Now()
 	fmt.Println("Hello World")
 	cache := New(10*time.Hour, 20*time.Minute)
 	fmt.Println(cache.defaultExpiryDuration)
-	fmt.Println(cache.kvstore)
-	cache.Set("foo", "bar", 2*time.Minute)
-	fmt.Println(cache.kvstore)
+	fmt.Println(cache.storage)
+
+	fmt.Println(cache.storage)
 	value, found := cache.Get("foo")
 	if found {
 		fmt.Println("Value is ", value)
 	}
+	fmt.Println("Time ", time.Since(t))
 }
 
 type Data struct {
@@ -38,7 +39,7 @@ type Cleaner struct {
 
 type cache struct {
 	defaultExpiryDuration time.Duration
-	kvstore               map[string]Data
+	storage               map[string]Data
 	locker                sync.RWMutex
 	cleaner               *Cleaner
 	onRemoval             func(string, interface{})
@@ -55,7 +56,7 @@ func New(defaultExpiryDuration time.Duration, cleanUpInterval time.Duration) *Ca
 
 	cache := &cache{
 		defaultExpiryDuration: defaultExpiryDuration,
-		kvstore:               make(map[string]Data),
+		storage:               make(map[string]Data),
 	}
 
 	Cache := &Cache{cache}
@@ -98,25 +99,25 @@ func stopCleaning(cache *Cache) {
 
 func (cache *cache) purge() {
 	now := time.Now().UnixNano()
-	for key, data := range cache.kvstore {
+	for key, data := range cache.storage {
 		if data.ExpireAt < now {
-			delete(cache.kvstore, key)
+			delete(cache.storage, key)
 		}
 	}
 }
 
-func (c *cache) Set(key string, value interface{}, expiryDuration time.Duration) {
-	if expiryDuration == DEFAULT {
-		expiryDuration = c.defaultExpiryDuration
+func (c *cache) Set(key string, value interface{}, LifeTime time.Duration) {
+	if LifeTime == DEFAULT {
+		LifeTime = c.defaultExpiryDuration
 	}
 	var expireAt int64
 
-	if expiryDuration > 0 {
-		expireAt = time.Now().Add(expiryDuration).UnixNano()
+	if LifeTime > 0 {
+		expireAt = time.Now().Add(LifeTime).UnixNano()
 	}
 	c.locker.Lock()
 	defer c.locker.Unlock()
-	c.kvstore[key] = Data{
+	c.storage[key] = Data{
 		Value:    value,
 		ExpireAt: expireAt,
 	}
@@ -124,7 +125,7 @@ func (c *cache) Set(key string, value interface{}, expiryDuration time.Duration)
 func (c *cache) Get(key string) (interface{}, bool) {
 	c.locker.RLock()
 	defer c.locker.RUnlock()
-	data, found := c.kvstore[key]
+	data, found := c.storage[key]
 	if !found {
 		return nil, false
 	}
